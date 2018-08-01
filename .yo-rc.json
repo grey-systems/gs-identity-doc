@@ -1,0 +1,10 @@
+{
+  "generator-openapi-repo": {
+    "importExistingSpec": false,
+    "name": "gs-identity",
+    "repo": "grey-systems/gs-identity-doc",
+    "splitSpec": false,
+    "samples": false,
+    "installSwaggerUI": true
+  }
+}

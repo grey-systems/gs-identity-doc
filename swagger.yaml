@@ -1,0 +1,632 @@
+swagger: '2.0'
+info:
+  version: 2.0.0
+  title: GreySystems OpenId Identity Integration
+  contact:
+    email: developers@greysystems.eu
+  license:
+    name: GreySystems
+    url: 'https://www.greysystems.eu/terms/'
+  termsOfService: 'https://www.greysystems.eu/terms'
+  x-logo:
+    url: 'http://www.greysystems.eu/wp-content/uploads/2017/07/logo-Grey-menu.png'
+    background: '#FFFFFF'
+  description: |
+    # Introduction
+    GreySystems OpenId Identity (aka GS-Identity) is a service  for all GreySystem's products that provides single sign-on with Identity Management and Access Management for any application through OpenID protocol and based on open source [Red Hat Keycloak](https://www.keycloak.org) 
+
+    Among the many features of Gs include :
+
+    * User Registration
+    * Single Sign-On/Sign-Off across all applications belonging to the same account
+    * 2-factor authentication
+    * Identity brokering (allows single user to use credentials and authorization flows from almost any openID provider (social, custom, banks, etc..)) 
+    * multitenancy: Every customer of GreySystems will have it's own account and his data will be 100% isolated from each other.
+
+
+    # OpenId Client Configuration details  
+
+    Once you sign for an account with GreySystems you will be provided with the following information customised for your requirements: 
+
+    * **account_name**: Your account number
+    * **client_id**: The client identifier assigned to your application (note that at least 1 client id is given however, you can have as many you want)
+    * **secret**: The client's secret. One per every `client_id`. Note that this secret is not always and GS will provide it only if it's required to ensure proper security.
+
+      
+    # Security Considerations
+    ## nonce
+
+    The nonce parameter value needs to include per-session state and be unguessable to attackers. One method to achieve this for Web Server Clients is to store a cryptographically random value as an HttpOnly session cookie and use a cryptographic hash of the value as the nonce parameter. In that case, the nonce in the returned ID Token is compared to the hash of the session cookie to detect ID Token replay by third parties. A related method applicable to JavaScript Clients is to store the cryptographically random value in HTML5 local storage and use a cryptographic hash of this value.
+
+    To generate a nonce you can use the following code snippets: 
+
+    **Generate a nonce** 
+    ```
+    function randomString(length) {
+      var bytes = new Uint8Array(length);
+      var random = window.crypto.getRandomValues(bytes);
+      var result = [];
+      var charset = '0123456789ABCDEFGHIJKLMNOPQRSTUVXYZabcdefghijklmnopqrstuvwxyz-._~'
+      random.forEach(function (c) {
+          result.push(charset[c % charset.length]);
+      });
+      return result.join('');
+    }
+    ```
+
+    **Persist nonce across requests**
+
+    The  generated nonce must be persisted in your web application using any of the following methods: 
+
+    * HttpOnly session cookie
+    * HTML5 local storage value 
+
+    For example 
+    `window.localStorage.setItem('nonce', randomString(16));` 
+
+    **Validate the ID Token**
+    Once GS-Security responds with an ID Token, this token must be validated and decoded as usual. Its nonce claim must contain the exact same value that was sent in the request. If not, authentication should be rejected by the application.
+
+    ```
+      var jwt = '...'; // validated and decoded ID Token body
+      if (jwt.nonce === window.localStorage.getItem('nonce')) {
+          // Nonce is OK
+      } else {
+          // Nonce is not OK! Token replay attack might be underway
+      }
+      ```
+
+    # Flows 
+
+    ## Authorization Code (Recommended)
+
+    The Authorization Code flow redirects the user agent to GS-Security. Once the user has successfully authenticated with GS-Security an Authorization Code is created and the user agent is redirected back to the application. The application then uses the authorization code along with its credentials to obtain an Access Token, Refresh Token and ID Token.
+
+     ![alt text](https://rograce.github.io/openid-connect-documentation/images/OIDCAuthCodeFlow.jpg "Authorization Code")
+
+
+    The flow is targeted towards web applications, but is also recommended for native applications, including mobile applications, where it is possible to embed a user agent.
+
+    For more details refer to the [Authorization Code Flow](http://openid.net/specs/openid-connect-core-1_0.html#CodeFlowAuth) in the OpenID Connect specification.
+
+    ## Implicit
+    The Implicit flow redirects works similarly to the Authorization Code flow, but instead of returning a Authorization Code the Access Token and ID Token is returned. This reduces the need for the extra invocation to exchange the Authorization Code for an Access Token. However, it does not include a Refresh Token. This results in the need to either permit Access Tokens with a long expiration, which is problematic as it’s very hard to invalidate these. Or requires a new redirect to obtain new Access Token once the initial Access Token has expired. The Implicit flow is useful if the application only wants to authenticate the user and deals with logout itself.
+    There’s also a Hybrid flow where both the Access Token and an Authorization Code is returned.
+
+    One thing to note is that both the Implicit flow and Hybrid flow has potential security risks as the Access Token may be leaked through web server logs and browser history. This is somewhat mitigated by using short expiration for Access Tokens.
+
+    ## Resource Owner Password Credentials
+    Resource Owner Password Credentials, referred to as Direct Grant in Keycloak, allows exchanging user credentials for tokens. It’s not recommended to use this flow unless you absolutely need to. Examples where this could be useful are legacy applications and command-line interfaces.
+
+    There are a number of limitations of using this flow, including:
+
+    * User credentials are exposed to the application
+
+    * Applications need login pages
+
+    * Application needs to be aware of the authentication scheme
+
+    * Changes to authentication flow requires changes to application
+
+    * No support for identity brokering or social login
+
+    * Flows are not supported (user self-registration, required actions, etc.)
+
+    For a client to be permitted to use the Resource Owner Password Credentials, this use case has to be requested to be activated by GreySystem team.
+
+    This flow is not included in OpenID Connect, but is a part of the OAuth 2.0 specification.
+
+    For more details refer to the [Resource Owner Password Credentials Grant](https://tools.ietf.org/html/rfc6749#section-4.3) chapter in the OAuth 2.0 specification.
+
+    # Examples of integration with GS-Identity
+
+    GS-Identity server is OpenId 1.0 compliant so can you use any 3rd party library that supports this protocol. 
+
+    Apart from this we have tested the following libraries in our applications: 
+
+    ## Angular 4-6 
+
+    [angular-oauth2-oidc](https://github.com/manfredsteyer/angular-oauth2-oidc). Follow the installation instructions to install this library in your project and use the following configuration to match the GS-Identity server: 
+
+    ```
+      export const authConfig: AuthConfig = {
+      // Url of the Identity Provider
+      issuer: 'https://identity.greysystems.eu/auth/realms/{account_name}',
+
+      // URL of the SPA to redirect the user to after login
+      redirectUri: window.location.origin + '/index.html',
+
+      // The SPA's id. The SPA is registerd with this id at the auth-server
+      clientId: '{your client_id}',
+
+      // set the scope for the permissions the client should request
+      scope: 'openid profile email',
+    }
+    ```
+
+    ## Java Spring boot 
+
+    [Spring Boot Keycloak Adapter](https://www.keycloak.org/docs/3.2/securing_apps/topics/oidc/java/spring-boot-adapter.html)
+
+    ```
+      keycloak.realm = {account_name}
+      keycloak.auth-server-url = https://identity.greysystems.eu/auth
+      keycloak.ssl-required = external
+      keycloak.resource = {your_client_id}
+      keycloak.credentials.secret = {secret_key} (if used)
+      keycloak.use-resource-role-mappings = true
+    ```
+
+    ## Android 
+      [AppAuth for Android](https://github.com/openid/AppAuth-Android). 
+      
+    ## IOS
+      [AppAuth for iOS](https://github.com/openid/AppAuth-iOS)
+      
+    ## Generic implementation of implicit workflow
+
+    **Login**
+
+    Requirements: 
+    * account_name
+    * client_id
+    * redirect_uri: You have to provided GreySystems with a list of your valid redirect_uri
+    * secret: not required
+
+    Workflow: 
+
+    1. Redirect your user to the `Authorization URL` via browser or webview (if your're ina mobile platform) with a valid redirect URI to your web application (or use custom URIs if you're on a mobile platform). Use the following response_type to indicate you want to use implicit workflow: 
+      * response_type: id_token token
+      * scopes: openid profile email
+      * See authorization endpoint for the rest of required values
+    2. The user will be authorized by GS-Identity
+    3. After successfull login, GS-Identity will call the redirect_uri provided in step 1 with a valid access_token and id_token (as uri parameters). 
+    4. USe the access_token to call any other API that is protected as bearer authorization header 
+
+    `Authorization: bearer {access_token}`
+
+    **Logout** 
+
+    In implicit workflow there is no refres_token, so the only possibility to logout an user is to redirect him to `logout endpoint` (GET)
+
+    ## Generic implementation of Authorization Code Workflow
+
+    **Login**
+
+    Requirements:
+    * account_name
+    * client_id
+    * redirect_uri: You have to provided GreySystems with a list of your valid redirect_uri
+    * secret: required
+
+    Workflow: 
+
+    1. Redirect your user to the `Authorization URL` via browser or webview (if your're ina mobile platform) with a valid redirect URI to your web application (or use custom URIs if you're on a mobile platform). Use the following response_type to indicate you want to use Authorization code workflow: 
+      * response_type: code
+      * scopes: openid profile email
+      * See authorization endpoint for the rest of required values
+    2. The user will be authorized by GS-Identity
+    3. After successfull login, GS-Identity will call the redirect_uri provided in step 1 with a one-time temporal `code` so that you can exchange it for a valid access_code/id_token/refresh_token
+    4. In your server (in which the secret should be stored), use the Token Endpoint to exchange the previous token by a valid one.
+
+    **Logout** 
+
+    You can use the logout endpoints (both modes, redirect user directly by a GET and POST from server using secret)
+tags:
+  - name: OpenId Endpoints
+paths:
+  '/auth/realms/{account_name}/.well-known/openid-configuration':
+    get:
+      tags:
+        - OpenId Endpoints
+      summary: Well known open id configuration
+      parameters:
+        - name: account_name
+          in: path
+          required: true
+          type: string
+          description: The account_name given by Grey Systems
+      description: |
+        The most important endpoint to understand is the well-known configuration endpoint. It lists endpoints and other configuration options relevant to the OpenID Connect implementation in GS-Identity. <br><br>
+
+        Some RP libraries retrieve all required endpoints from this endpoint, but for others you might need to list the endpoints individually.
+      responses:
+        '200':
+          description: Operation Successful
+          schema:
+            $ref: '#/definitions/OpenIdConfigurationResponse'
+  '/auth/realms/{account_name}/protocol/openid-connect/auth':
+    get:
+      summary: Authorization Endpoint
+      tags:
+        - OpenId Endpoints
+      parameters:
+        - name: account_name
+          in: path
+          required: true
+          type: string
+          description: The account_name given by Grey Systems
+        - name: client_id
+          in: query
+          required: true
+          type: string
+          description: OAuth 2.0 Client Identifier valid at the Authorization Server.
+        - name: response_type
+          in: query
+          required: true
+          type: string
+          description: 'OAuth 2.0 Response Type value that determines the authorization processing flow to be used. When using the Authorization Code Flow, this value is `code`.'
+        - name: redirect_uri
+          in: query
+          required: true
+          type: string
+          description: The client_id
+        - name: state
+          in: query
+          required: false
+          type: string
+          description: 'Opaque value used to maintain state between the request and the callback. Typically, Cross-Site Request Forgery (CSRF, XSRF) mitigation is done by cryptographically binding the value of this parameter with a browser cookie. Not required but recommended'
+        - name: scope
+          in: query
+          required: true
+          type: string
+          description: The scope parameter allows the application to express the desired scope of the access request. an be used by the authorization server in the response to indicate which scopes were actually granted.
+        - name: nonce
+          in: query
+          required: true
+          type: string
+          description: 'String value used to associate a Client session with an ID Token, and to mitigate replay attacks. The value is passed through unmodified from the Authentication Request to the ID Token.'
+      description: |
+        The authorization endpoint performs authentication of the end-user. This is done by redirecting the user agent to this endpoint. 
+        **Note That this endpoint is intented to be called directly by a browser**
+
+        For more details please see the [Authorization Endpoint](http://openid.net/specs/openid-connect-core-1_0.html#AuthorizationEndpoint) section in the OpenID specification.
+      responses:
+        '303':
+          description: Redirection to the proper authentication provider
+  '/auth/realms/{account_name}/protocol/openid-connect/token':
+    post:
+      security:
+        - basicAuth: []
+      summary: Token Endpoint
+      tags:
+        - OpenId Endpoints
+      consumes:
+        - application/x-www-form-urlencoded
+      parameters:
+        - name: account_name
+          in: path
+          required: true
+          type: string
+          description: The account_name given by Grey Systems
+        - name: grant_type
+          in: formData
+          required: true
+          type: string
+          description: Type of grant to get a valid token. For Authorization Code you must set `authorization_code` as value
+        - name: code
+          in: formData
+          required: true
+          type: string
+          description: The temporal code returned by the GS-Security
+        - name: redirect_uri
+          in: formData
+          required: true
+          type: string
+          description: Should be the same redirect URI than the one used in the authorization phase
+      description: |
+        The token endpoint is used to obtain tokens. Tokens can either be obtained by exchanging an authorization code or by supplying credentials directly depending on what flow is used. The token endpoint is also used to obtain new access tokens when they expire.
+
+        This definition is valid only for "Authorization Code" workflow,               for more details please see the [Token Endpoint](http://openid.net/specs/openid-connect-core-1_0.html#TokenEndpoint) section in the OpenID specification.
+      responses:
+        '200':
+          description: Token issued
+          schema:
+            $ref: '#/definitions/TokenResponse'
+        '400':
+          description: Invalid request
+  '/auth/realms/{account_name}/protocol/openid-connect/userinfo':
+    get:
+      summary: UserInfo Endpoint
+      tags:
+        - OpenId Endpoints
+      consumes:
+        - application/x-www-form-urlencoded
+      parameters:
+        - name: account_name
+          in: path
+          required: true
+          type: string
+          description: The account_name given by Grey Systems
+      description: |
+        The userinfo endpoint returns standard claims about the authenticated user, and is protected by a bearer token.
+
+        **Note that this will give only very basic details about user, GS products will have endpoints to provide user information contextualised for the application you want to use**
+      responses:
+        '200':
+          description: User Information
+          schema:
+            $ref: '#/definitions/UserInfoResponse'
+  '/auth/realms/{account_name}/protocol/openid-connect/logout':
+    post:
+      summary: Logout Endpoint (REST)
+      security:
+        - basicAuth: []
+      tags:
+        - OpenId Endpoints
+      consumes:
+        - application/x-www-form-urlencoded
+      parameters:
+        - name: account_name
+          in: path
+          required: true
+          type: string
+          description: The account_name given by Grey Systems
+        - name: client_id
+          in: formData
+          required: true
+          type: string
+          description: OAuth 2.0 Client Identifier valid at the Authorization Server.
+        - name: refresh_token
+          in: formData
+          required: true
+          type: string
+          description: The refresh_token of the user you want to log out.
+      description: |
+        Opossite to the GET Logout endpoint, this endpoint must be used to logout an user by a server application. 
+      responses:
+        '204':
+          description: User logged out
+    get:
+      summary: Logout Endpoint
+      tags:
+        - OpenId Endpoints
+      parameters:
+        - name: account_name
+          in: path
+          required: true
+          type: string
+          description: The account_name given by Grey Systems
+        - name: redirect_uri
+          in: query
+          required: true
+          type: string
+          description: The redirrect_uri after logout
+      description: |
+        The logout endpoint logs out the authenticated user.
+
+        The user agent (browser) can be redirected to the endpoint, in which case the active user session is logged out. Afterward the user agent is redirected back to the application by using redirect_uri parameter
+      responses:
+        '303':
+          description: 'Logout correct, user is redirected to the redirect_uri if provided or to the login webpage of the GS-Identity server if not provided.'
+definitions:
+  UserInfoResponse:
+    required:
+      - sub
+      - name
+      - preferred_username
+      - given_name
+      - family_name
+      - email
+    properties:
+      sub:
+        type: string
+        example: 4ff43e1f-c347-43a1-bc85-92ad862e7bc6
+      name:
+        type: string
+        example: Jose MAnuel Felguera
+      preferred_username:
+        type: string
+        example: '{6bc7fd76-c28c-4fc2-92ab-c7a8bf40eda5}'
+      given_name:
+        type: string
+        example: Jose MAnuel
+      family_name:
+        type: string
+        example: Felguera
+      email:
+        type: string
+        example: test@gmail.com
+  TokenResponse:
+    required:
+      - access_token
+      - expires_in
+      - refresh_expires_in
+      - refresh_token
+      - token_type
+      - id_token
+      - not-before-policy
+      - session_state
+      - scope
+    properties:
+      access_token:
+        type: string
+        example: eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJDaWN1Nmtlb3JOS0ZJTmlEWHlhQ2lpZllKeUNYYnlvOGRtNU5lYThibzVVIn0.eyJqdGkiOiJjZjMyZTBiZi01ZmY4LTQxNTctOTUwYi1kZWY4MjgxZmNhZTciLCJleHAiOjE1MzE0MTI0OTgsIm5iZiI6MCwiaWF0IjoxNTMxNDEyMTk4LCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvYXV0aC9yZWFsbXMveGJhaHQiLCJhdWQiOiJtdGMtdHJhbnNmZXItb25saW5lIiwic3ViIjoiNGZmNDNlMWYtYzM0Ny00M2ExLWJjODUtOTJhZDg2MmU3YmM2IiwidHlwIjoiQmVhcmVyIiwiYXpwIjoibXRjLXRyYW5zZmVyLW9ubGluZSIsIm5vbmNlIjoicVNoWlpBSWw1UWY1dkY5NUJlZWJpZWpKTDY4S1lQbkt5MGd1elhTWSIsImF1dGhfdGltZSI6MTUzMTQxMTUxNywic2Vzc2lvbl9zdGF0ZSI6IjAzNmU5N2I3LTU2NGItNDE0NS05OGJhLTU2OTgwODhhNmVmNCIsImFjciI6IjAiLCJhbGxvd2VkLW9yaWdpbnMiOltdLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19LCJuYW1lIjoiSm9zZSBNQW51ZWwgRmVsZ3VlcmEiLCJwcmVmZXJyZWRfdXNlcm5hbWUiOiJ7NmJjN2ZkNzYtYzI4Yy00ZmMyLTkyYWItYzdhOGJmNDBlZGE1fSIsImdpdmVuX25hbWUiOiJKb3NlIE1BbnVlbCIsImZhbWlseV9uYW1lIjoiRmVsZ3VlcmEiLCJlbWFpbCI6InRlc3RAZ21haWwuY29tIn0.PyQRjLBc_F_6btMdZGdimwx9eiSC66EkjGxWM4n5gnL6XwpHx-cDWea-0CrUXhJ6Xgp6dOAjEl6S9uOWtyJ9px9fNOogX2CbePi5MzESi92-gDRj7Xs0C4w3vulGxPBqbYLy4_FjJt3gy78Hc8ntDd4gsKg--VX87IrBcnfigbntvkUudoXVSJrMkjxAJVbY-qP3QgnbsZAEA8TfNb4u59UnkJCvqNqk0kYsThyTbbMV6q8F9bVrtt1Uvd-QjHxH-pe4Ddoyhe4sV_IxykDiOmzZi7EPB_dweyTggE9jnMPYMSmq-DPVrdUxgvu_kIrexu2aymTzsgIaNLLFuB7uQg
+      expires_in:
+        type: number
+        example: 300
+      refresh_expires_in:
+        type: number
+        example: 1800
+      refresh_token:
+        type: string
+        example: eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJDaWN1Nmtlb3JOS0ZJTmlEWHlhQ2lpZllKeUNYYnlvOGRtNU5lYThibzVVIn0.eyJqdGkiOiI3MjJiNDFmZS00MmY4LTQ3YTMtODFmYS01MDM3YzFiNWQzNGYiLCJleHAiOjE1MzE0MTM5OTgsIm5iZiI6MCwiaWF0IjoxNTMxNDEyMTk4LCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvYXV0aC9yZWFsbXMveGJhaHQiLCJhdWQiOiJtdGMtdHJhbnNmZXItb25saW5lIiwic3ViIjoiNGZmNDNlMWYtYzM0Ny00M2ExLWJjODUtOTJhZDg2MmU3YmM2IiwidHlwIjoiUmVmcmVzaCIsImF6cCI6Im10Yy10cmFuc2Zlci1vbmxpbmUiLCJub25jZSI6InFTaFpaQUlsNVFmNXZGOTVCZWViaWVqSkw2OEtZUG5LeTBndXpYU1kiLCJhdXRoX3RpbWUiOjAsInNlc3Npb25fc3RhdGUiOiIwMzZlOTdiNy01NjRiLTQxNDUtOThiYS01Njk4MDg4YTZlZjQiLCJyZWFsbV9hY2Nlc3MiOnsicm9sZXMiOlsidW1hX2F1dGhvcml6YXRpb24iXX0sInJlc291cmNlX2FjY2VzcyI6eyJhY2NvdW50Ijp7InJvbGVzIjpbIm1hbmFnZS1hY2NvdW50IiwibWFuYWdlLWFjY291bnQtbGlua3MiLCJ2aWV3LXByb2ZpbGUiXX19fQ.c0s8Aq2nD_DO3zITA4IVAt6bx9awXEPOOG6h0PhMItolzJTGdAS7SZ4lOkjBMwF_fUuckL1x0Wm2eKYi8DgLUs66QKTk1-x2MHTxP3gOBptyV-2pwGJ--qfKgR7dPCzk8g9F67fjV1z7GcEA1DWKsW4ndulcSx04VYNzCWOcg50xDAE0erL-wuRIHR_9vssXQYoQgPYECTrIuRvY0spMCT1UfmKPkfCk6TaJcARQ4_fsP0DR-MP1uxSA_JkmVCbKWv0jIpzSTu3x7gAy4qY_9JzQtZyWyOggjFifqmh970C9z0pDJZAxk8uBv-Z30r9c_KyR3g1M_5N28dGGQt6BrQ
+      token_type:
+        type: string
+        example: bearer
+      id_token:
+        type: string
+        example: eyJhbGciOiJSUzI1NiIsInR5cCIgOiAiSldUIiwia2lkIiA6ICJDaWN1Nmtlb3JOS0ZJTmlEWHlhQ2lpZllKeUNYYnlvOGRtNU5lYThibzVVIn0.eyJqdGkiOiJmYTIzMzE4NS02MDE0LTQ2Y2QtOWM4OC0yNmVlOGM1OTY2N2MiLCJleHAiOjE1MzE0MTI0OTgsIm5iZiI6MCwiaWF0IjoxNTMxNDEyMTk4LCJpc3MiOiJodHRwOi8vbG9jYWxob3N0OjgwODAvYXV0aC9yZWFsbXMveGJhaHQiLCJhdWQiOiJtdGMtdHJhbnNmZXItb25saW5lIiwic3ViIjoiNGZmNDNlMWYtYzM0Ny00M2ExLWJjODUtOTJhZDg2MmU3YmM2IiwidHlwIjoiSUQiLCJhenAiOiJtdGMtdHJhbnNmZXItb25saW5lIiwibm9uY2UiOiJxU2haWkFJbDVRZjV2Rjk1QmVlYmllakpMNjhLWVBuS3kwZ3V6WFNZIiwiYXV0aF90aW1lIjoxNTMxNDExNTE3LCJzZXNzaW9uX3N0YXRlIjoiMDM2ZTk3YjctNTY0Yi00MTQ1LTk4YmEtNTY5ODA4OGE2ZWY0IiwiYWNyIjoiMCIsIm5hbWUiOiJKb3NlIE1BbnVlbCBGZWxndWVyYSIsInByZWZlcnJlZF91c2VybmFtZSI6Ins2YmM3ZmQ3Ni1jMjhjLTRmYzItOTJhYi1jN2E4YmY0MGVkYTV9IiwiZ2l2ZW5fbmFtZSI6Ikpvc2UgTUFudWVsIiwiZmFtaWx5X25hbWUiOiJGZWxndWVyYSIsImVtYWlsIjoidGVzdEBnbWFpbC5jb20ifQ.X1n526teHJx8_nspt13liDairPXs4lz24P_nLicZ8bPIvpUY_ywPSjdJFmIon4Og58jBG_0ztRB4FRWzAj1klWZ0XDSu4XkfcDTZqfyw0Ya2sbILpux2QY4hq1w1CP9adRUW8pme8PjEJUh3Fyfhbn__kt4PB0eNvwBDz91WTfHZg-N_yutkuyBpqyvCQ9JYz47j4qaRhtaqXx65WtdFvu0YnWtyDxCRGT_tDsYkKWn8mC75R4ZdTP2nRog4aXLZa-Y94KSC6v0RBmKUoT1OhmloZ77LBwKPmJMOSfveltC7ULeVhyT-hM9zsDl3ZXdU4LmrjM210lQgs1UGDh0vSw
+      not-before-policy:
+        type: number
+        example: 0
+      session_state:
+        type: string
+        example: 036e97b7-564b-4145-98ba-5698088a6ef4
+      scope:
+        type: string
+        example: ''
+  OpenIdConfigurationResponse:
+    required:
+      - issuer
+      - authorization_endpoint
+      - token_endpoint
+      - token_introspection_endpoint
+      - userinfo_endpoint
+      - end_session_endpoint
+      - jwks_uri
+      - check_session_iframe
+      - grant_types_supported
+      - response_types_supported
+      - subject_types_supported
+      - id_token_signing_alg_values_supported
+      - userinfo_signing_alg_values_supported
+      - request_object_signing_alg_values_supported
+      - response_modes_supported
+      - registration_endpoint
+      - token_endpoint_auth_methods_supported
+      - token_endpoint_auth_signing_alg_values_supported
+      - claims_supported
+      - claim_types_supported
+      - claims_parameter_supported
+      - scopes_supported
+      - request_parameter_supported
+      - request_uri_parameter_supported
+    properties:
+      issuer:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master'
+      authorization_endpoint:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master/protocol/openid-connect/auth'
+      token_endpoint:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master/protocol/openid-connect/token'
+      token_introspection_endpoint:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master/protocol/openid-connect/token/introspect'
+      userinfo_endpoint:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master/protocol/openid-connect/userinfo'
+      end_session_endpoint:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master/protocol/openid-connect/logout'
+      jwks_uri:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master/protocol/openid-connect/certs'
+      check_session_iframe:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master/protocol/openid-connect/login-status-iframe.html'
+      grant_types_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - authorization_code
+          - implicit
+          - refresh_token
+          - password
+          - client_credentials
+      response_types_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - code
+          - none
+          - id_token
+          - token
+          - id_token token
+          - code id_token
+          - code token
+          - code id_token token
+      subject_types_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - public
+          - pairwise
+      id_token_signing_alg_values_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - RS256
+      userinfo_signing_alg_values_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - RS256
+      request_object_signing_alg_values_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - none
+          - RS256
+      response_modes_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - query
+          - fragment
+          - form_post
+      registration_endpoint:
+        type: string
+        example: 'https://identity.greysystems.eu/auth/realms/master/clients-registrations/openid-connect'
+      token_endpoint_auth_methods_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - private_key_jwt
+          - client_secret_basic
+          - client_secret_post
+          - client_secret_jwt
+      token_endpoint_auth_signing_alg_values_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - RS256
+      claims_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - sub
+          - iss
+          - auth_time
+          - name
+          - given_name
+          - family_name
+          - preferred_username
+          - email
+      claim_types_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - normal
+      claims_parameter_supported:
+        type: boolean
+        example: false
+      scopes_supported:
+        type: array
+        items:
+          type: string
+        example:
+          - openid
+          - offline_access
+      request_parameter_supported:
+        type: boolean
+        example: true
+      request_uri_parameter_supported:
+        type: boolean
+        example: true
+securityDefinitions:
+  basicAuth:
+    type: basic
